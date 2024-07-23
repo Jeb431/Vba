@@ -1,0 +1,230 @@
+Sub CommitsGReen()
+    Dim wsParts As Worksheet
+    Dim wsSNC As Worksheet
+    Dim wsQTY As Worksheet
+    Dim wsCommits As Worksheet
+    Dim wsBuildPlan As Worksheet
+    Dim inputVal As String
+    Dim lastRowSNC As Long
+    Dim i As Long, j As Long, k As Long
+    Dim dict As Object
+    Dim totalSumG As Double, firstHValue As Double
+    Dim key As String
+    Dim outputRow As Long
+    Dim result As Double
+    Dim startDate As Date
+    Dim remainingWeeks As Long
+    Dim endOfMonth As Date
+    Dim cell As Range
+    Dim lastRowA As Long, lastRowB As Long
+    Dim twoWeeksFromFriday As Date
+
+    On Error GoTo ErrorHandler
+
+    Set wsParts = ThisWorkbook.Sheets("Parts")
+    Set wsSNC = ThisWorkbook.Sheets("SNC")
+    Set wsQTY = ThisWorkbook.Sheets("QTY")
+    Set wsCommits = ThisWorkbook.Sheets("Commits")
+    Set wsBuildPlan = ThisWorkbook.Sheets("Build Plan")
+    
+    lastRowSNC = wsSNC.Cells(wsSNC.Rows.Count, "E").End(xlUp).Row
+
+    ' Calculate the date of the Friday two weeks from today
+    twoWeeksFromFriday = DateAdd("d", 14, Date - Weekday(Date, vbMonday) + 5)
+
+    ' Find last rows for columns A and B independently
+    lastRowA = wsParts.Cells(wsParts.Rows.Count, "A").End(xlUp).Row
+    lastRowB = wsParts.Cells(wsParts.Rows.Count, "B").End(xlUp).Row
+
+    ' Handle Column A in Parts sheet
+    For i = 2 To lastRowA
+        inputVal = wsParts.Cells(i, "A").Value
+        If inputVal <> "" Then
+            totalSumG = 0
+            firstHValue = 0
+            Set dict = CreateObject("Scripting.Dictionary") ' Reset dictionary for each input value
+
+            For j = 2 To lastRowSNC
+                key = ""
+                For k = 1 To 7
+                    key = key & "|" & wsSNC.Cells(j, k).Value
+                Next k
+
+                If Not dict.exists(key) Then
+                    dict(key) = True
+
+                    If wsSNC.Cells(j, "E").Value = inputVal Then
+                        totalSumG = totalSumG + wsSNC.Cells(j, "G").Value
+                        If firstHValue = 0 Then
+                            firstHValue = wsSNC.Cells(j, "H").Value
+                        End If
+
+                        ' Populate the Commits sheet for Column A
+                        outputRow = wsCommits.Cells(wsCommits.Rows.Count, "A").End(xlUp).Row + 1
+                        wsCommits.Cells(outputRow, "A").Value = wsSNC.Cells(j, "E").Value
+                        If wsSNC.Cells(j, "F").Value < twoWeeksFromFriday Then
+                            wsCommits.Cells(outputRow, "B").Value = twoWeeksFromFriday
+                        Else
+                            wsCommits.Cells(outputRow, "B").Value = wsSNC.Cells(j, "F").Value
+                        End If
+                        wsCommits.Cells(outputRow, "C").Value = wsSNC.Cells(j, "G").Value
+                    End If
+                End If
+            Next j
+
+            result = totalSumG - firstHValue
+            outputRow = wsQTY.Cells(wsQTY.Rows.Count, "A").End(xlUp).Row + 1
+            wsQTY.Cells(outputRow, "A").Value = inputVal
+            wsQTY.Cells(outputRow, "B").Value = result
+        End If
+    Next i
+
+    ' Handle Column B in Parts sheet
+    For Each cell In wsParts.Range("B2:B" & lastRowB)
+        inputVal = cell.Value
+        If inputVal <> "" Then
+            startDate = Date ' Today's date
+            endOfMonth = DateSerial(Year(startDate), Month(startDate) + 1, 0)
+            remainingWeeks = WorksheetFunction.RoundUp((endOfMonth - startDate + 1) / 7, 0)
+
+            totalSumG = 0
+            firstHValue = 0
+            Set dict = CreateObject("Scripting.Dictionary") ' Reset dictionary for each input value
+
+            For j = 2 To lastRowSNC
+                key = ""
+                For k = 1 To 7
+                    key = key & "|" & wsSNC.Cells(j, k).Value
+                Next k
+
+                If Not dict.exists(key) Then
+                    dict(key) = True
+
+                    If wsSNC.Cells(j, "E").Value = inputVal Then
+                        totalSumG = totalSumG + wsSNC.Cells(j, "G").Value
+                        If firstHValue = 0 Then
+                            firstHValue = wsSNC.Cells(j, "H").Value
+                        End If
+                    End If
+                End If
+            Next j
+
+            result = totalSumG - firstHValue
+            outputRow = wsQTY.Cells(wsQTY.Rows.Count, "A").End(xlUp).Row + 1
+            wsQTY.Cells(outputRow, "A").Value = inputVal
+            wsQTY.Cells(outputRow, "B").Value = result
+
+            If result > 0 Then
+                PopulateCommitsAutoDate inputVal, startDate, result, remainingWeeks, twoWeeksFromFriday
+            Else
+                MsgBox "Result is zero or negative for " & inputVal & ". Data not populated into Commits.", vbExclamation
+            End If
+        End If
+    Next cell
+
+    MsgBox "Processing completed successfully.", vbInformation
+    Exit Sub
+
+ErrorHandler:
+    MsgBox "Error: " & Err.Description, vbCritical
+End Sub
+
+Sub PopulateCommitsAutoDate(inputVal As String, startDate As Date, QTY As Double, remainingWeeks As Long, twoWeeksFromFriday As Date)
+    Dim wsBuildPlan As Worksheet
+    Dim wsCommits As Worksheet
+    Dim wsQTY As Worksheet
+    Dim buildPlanRow As Long
+    Dim col As Long
+    Dim weekStartDate As Date
+    Dim weeklyBuild As Double
+    Dim totalBuild As Double
+    Dim outputRow As Long
+    Dim i As Long
+    Dim wholeWeeklyBuild As Long
+    Dim remainder As Long
+    Dim week As Long
+
+    Set wsBuildPlan = ThisWorkbook.Sheets("Build Plan")
+    Set wsCommits = ThisWorkbook.Sheets("Commits")
+    Set wsQTY = ThisWorkbook.Sheets("QTY")
+
+    buildPlanRow = 0
+    For i = 2 To wsBuildPlan.Cells(wsBuildPlan.Rows.Count, "D").End(xlUp).Row
+        If wsBuildPlan.Cells(i, "D").Value = inputVal And InStr(wsBuildPlan.Cells(i, "H").Value, "4 - BUILD PLAN") > 0 Then
+            buildPlanRow = i
+            Exit For
+        End If
+    Next i
+
+    If buildPlanRow = 0 Then
+        With wsQTY.Cells(wsQTY.Cells(wsQTY.Rows.Count, "A").End(xlUp).Row, "A")
+            .Interior.Color = vbRed
+            .Value = inputVal
+        End With
+        Exit Sub
+    End If
+
+    totalBuild = 0
+    weekStartDate = startDate ' Start from today's date
+    outputRow = wsCommits.Cells(wsCommits.Rows.Count, "A").End(xlUp).Row + 1
+
+    For col = 11 To 33
+        If wsBuildPlan.Cells(buildPlanRow, col).Value <> "" Then
+            If col = 11 Then
+                weeklyBuild = wsBuildPlan.Cells(buildPlanRow, col).Value / remainingWeeks
+            Else
+                weeklyBuild = wsBuildPlan.Cells(buildPlanRow, col).Value / 4
+            End If
+            wholeWeeklyBuild = Int(weeklyBuild)
+            remainder = wsBuildPlan.Cells(buildPlanRow, col).Value Mod IIf(col = 11, remainingWeeks, 4)
+
+            For week = 1 To IIf(col = 11, remainingWeeks, 4)
+                If totalBuild >= QTY Then Exit For
+
+                If totalBuild + wholeWeeklyBuild + IIf(remainder > 0, 1, 0) > QTY Then
+                    If QTY - totalBuild <> 0 Then
+                        wsCommits.Cells(outputRow, "A").Value = inputVal
+                        If weekStartDate < twoWeeksFromFriday Then
+                            wsCommits.Cells(outputRow, "B").Value = twoWeeksFromFriday
+                        Else
+                            wsCommits.Cells(outputRow, "B").Value = weekStartDate
+                        End If
+                        wsCommits.Cells(outputRow, "C").Value = QTY - totalBuild
+                    End If
+                    totalBuild = QTY
+                Else
+                    If wholeWeeklyBuild + IIf(remainder > 0, 1, 0) <> 0 Then
+                        wsCommits.Cells(outputRow, "A").Value = inputVal
+                        If weekStartDate < twoWeeksFromFriday Then
+                            wsCommits.Cells(outputRow, "B").Value = twoWeeksFromFriday
+ Else
+                            wsCommits.Cells(outputRow, "B").Value = weekStartDate
+                        End If
+                        wsCommits.Cells(outputRow, "C").Value = wholeWeeklyBuild + IIf(remainder > 0, 1, 0)
+                        totalBuild = totalBuild + wholeWeeklyBuild + IIf(remainder > 0, 1, 0)
+                        remainder = remainder - 1
+                    End If
+                End If
+
+                weekStartDate = DateAdd("d", 7, weekStartDate)
+                outputRow = outputRow + 1
+            Next week
+        End If
+        If totalBuild >= QTY Then Exit For
+    Next col
+
+    If totalBuild < QTY Then
+        If QTY - totalBuild <> 0 Then
+            If weekStartDate < twoWeeksFromFriday Then
+                wsCommits.Cells(outputRow, "B").Value = twoWeeksFromFriday
+            Else
+                wsCommits.Cells(outputRow, "B").Value = weekStartDate
+            End If
+            wsCommits.Cells(outputRow, "C").Value = QTY - totalBuild
+        End If
+        totalBuild = QTY
+    End If
+End Sub
+
+
+
